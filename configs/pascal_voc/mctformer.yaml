@@ -1,0 +1,26 @@
+NUM_GPUS: 2
+DATASET:
+  NAME: pascal_voc
+  CROP_SIZE: 224
+  SCALE_FROM: 0.9
+  SCALE_TO: 1.0
+TRAIN:
+  BATCH_SIZE: 64
+  NUM_EPOCHS: 60
+  NUM_WORKERS: 8
+  PRETRAIN: 60
+NET:
+  NUM_CLASSES: 21
+  BACKBONE: "resnet50"
+  MODEL: "mctformer"
+  PRE_WEIGHTS_PATH: "https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth"
+  LR: 5e-4
+  OPT: "Adamw"
+  WEIGHT_DECAY: 0.0005
+TEST:
+  # FLIP: True
+  # SCALES: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+  # USE_GT_LABELS: True
+  FLIP: False
+  SCALES: [1.0]
+  USE_GT_LABELS: True

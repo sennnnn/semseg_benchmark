@@ -1,0 +1,30 @@
+NUM_GPUS: 2
+DATASET:
+  NAME: pascal_voc_pseudo_gt
+  CROP_SIZE: 321
+  SCALE_FROM: 0.7
+  SCALE_TO: 1.3
+  PSEUDO_GT_PATH: ../MCTformer/work_dirs/MCTformer_v2_official/pgt-psa-rw
+  TRAIN_SPLIT: 'train_voc'
+TRAIN:
+  BATCH_SIZE: 4
+  NUM_EPOCHS: 30
+  NUM_WORKERS: 8
+  LR_SCHEDULER_NAME: step
+  LR_DECAY_EPOCHS: [20, ]
+  LR_DECAY_RATE: 0.1
+  LR: 7e-4
+  OPT: "SGD"
+  WEIGHT_DECAY: 1e-5
+  MOMENTUM: 0.9
+NET:
+  NUM_CLASSES: 21
+  BACKBONE: "resnet38d"
+  MODEL: "deeplabv1"
+  PRE_WEIGHTS_PATH: "./pretrained_pool/res38_cls.pth"
+TEST:
+  # FLIP: True
+  # SCALES: [0.75, 1.0, 1.25, 1.5]
+  FLIP: False
+  SCALES: [1.0]
+  USE_GT_LABELS: True

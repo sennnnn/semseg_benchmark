@@ -1,0 +1,24 @@
+NUM_GPUS: 2
+DATASET:
+  NAME: pascal_voc
+  CROP_SIZE: 448
+  SCALE_FROM: 0.9
+  SCALE_TO: 1.0
+TRAIN:
+  BATCH_SIZE: 16
+  NUM_EPOCHS: 25
+  NUM_WORKERS: 8
+  PRETRAIN: 5
+NET:
+  NUM_CLASSES: 21
+  BACKBONE: "resnet101"
+  MODEL: "ae"
+  PRE_WEIGHTS_PATH: "./pretrained_pool/resnet101-5d3b4d8f.pth"
+  LR: 0.001
+  OPT: "SGD"
+  LOSS: "SoftMargin"
+  WEIGHT_DECAY: 0.0005
+TEST:
+  FLIP: True
+  SCALES: [1, 0.75, 1.25, 1.5]
+  USE_GT_LABELS: True
