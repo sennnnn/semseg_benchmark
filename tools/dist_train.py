@@ -10,14 +10,14 @@ import torch.multiprocessing as mp
 
 sys.path.append('./')
 
-from sswss.core import get_arguments  # noqa
-from sswss.apis import evaluate  # noqa
-from sswss.datasets import get_num_classes, get_class_names, build_dataset  # noqa
-from sswss.core import DistBaseTrainer, cfg, cfg_from_file, cfg_from_list  # noqa
-from sswss.utils import (  # noqa
+from sembm.core import get_arguments  # noqa
+from sembm.apis import evaluate  # noqa
+from sembm.datasets import get_num_classes, get_class_names, build_dataset  # noqa
+from sembm.core import DistBaseTrainer, cfg, cfg_from_file, cfg_from_list  # noqa
+from sembm.utils import (  # noqa
     Checkpointer, Writer, convert_model, is_enabled, is_main_process, reduce_dict, reduce, build_dataloader,
     init_process_group)
-from sswss.utils.lr_scheduler import EpochLrScheduler
+from sembm.utils.lr_scheduler import EpochLrScheduler
 
 
 class DecTrainer(DistBaseTrainer):
@@ -62,6 +62,8 @@ class DecTrainer(DistBaseTrainer):
             loss.backward()
             self.optim.step()
 
+            self.lr_sche.adjust_learning_rate(self._epoch, self._iter)
+
             self.writer.update_data_timepoint()
             # log
             loss = reduce(loss)
@@ -88,11 +90,9 @@ class DecTrainer(DistBaseTrainer):
 
     def train(self):
         for epoch in range(self.start_epoch, cfg.TRAIN.NUM_EPOCHS + 1):
-            self.lr_sche.adjust_learning_rate(epoch)
-
             # shuffle
             if hasattr(self.train_loader.sampler, 'set_epoch'):
-                self.train_loader.sampler.set_epoch()
+                self.train_loader.sampler.set_epoch(epoch)
 
             self.train_epoch(epoch)
 
@@ -126,32 +126,6 @@ def main_worker(rank, num_gpus, args):
     if args.set_cfgs is not None:
         cfg_from_list(args.set_cfgs)
 
-    if is_enabled():
-        cfg.NET.BN_TYPE = 'syncbn'
-
-    model = DecTrainer.build_model(cfg)
-    kwargs = {
-        "base_lr": cfg.TRAIN.LR,
-        "wd": cfg.TRAIN.WEIGHT_DECAY,
-        "batch_size": cfg.TRAIN.BATCH_SIZE,
-        "world_size": num_gpus,
-    }
-    param_groups = model.parameter_groups(**kwargs)
-    optim = DecTrainer.build_optim(param_groups, cfg.TRAIN)
-    lr_sche = EpochLrScheduler(cfg, optim)
-
-    checkpointer = Checkpointer(cfg.WORK_DIR, max_n=3)
-    checkpointer.add_model(model, optim)
-
-    writer = Writer(cfg.WORK_DIR)
-    writer._build_writers()
-
-    if args.resume is not None:
-        checkpointer.load(args.resume)
-
-    # to ddp model
-    model = convert_model(model, find_unused_parameters=True)
-
     train_dataset = build_dataset(cfg, cfg.DATASET.TRAIN_SPLIT)
     val_dataset = build_dataset(cfg, 'val')
 
@@ -164,7 +138,40 @@ def main_worker(rank, num_gpus, args):
         num_workers=cfg.TRAIN.NUM_WORKERS)
 
     val_loader = build_dataloader(
-        val_dataset, batch_size=1, shuffle=False, drop_last=False, pin_memory=True, num_workers=cfg.TRAIN.NUM_WORKERS)
+        val_dataset,
+        batch_size=num_gpus,
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=cfg.TRAIN.NUM_WORKERS)
+
+    if is_enabled():
+        cfg.NET.BN_TYPE = 'syncbn'
+
+    model = DecTrainer.build_model(cfg)
+    kwargs = {
+        "base_lr": cfg.TRAIN.LR,
+        "wd": cfg.TRAIN.WEIGHT_DECAY,
+        "batch_size": cfg.TRAIN.BATCH_SIZE,
+        "world_size": num_gpus,
+    }
+    param_groups = model.parameter_groups(**kwargs)
+    optim = DecTrainer.build_optim(param_groups, cfg.TRAIN)
+    max_epochs = cfg.TRAIN.NUM_EPOCHS
+    max_iters = cfg.TRAIN.NUM_EPOCHS * len(train_dataset) // cfg.TRAIN.BATCH_SIZE
+    lr_sche = EpochLrScheduler(cfg, max_epochs, max_iters, optim)
+
+    checkpointer = Checkpointer(cfg.WORK_DIR, max_n=3)
+    checkpointer.add_model(model, optim)
+
+    writer = Writer(cfg.WORK_DIR)
+    writer._build_writers()
+
+    if args.resume is not None:
+        checkpointer.load(args.resume)
+
+    # to ddp model
+    model = convert_model(model, find_unused_parameters=True)
 
     trainer = DecTrainer(cfg, model, optim, lr_sche, train_loader, val_loader, writer, checkpointer)
     if is_main_process():

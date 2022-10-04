@@ -2,7 +2,7 @@ import os
 import os.path as osp
 import torch
 
-from sswss.utils.distributed import is_main_process
+from .distributed import is_main_process
 
 
 class Checkpointer(object):

@@ -12,7 +12,7 @@ from PIL import Image
 
 sys.path.append('./')
 
-from sswss.utils.progressbar import track_parallel_progress, track_progress
+from sembm.utils.progressbar import track_parallel_progress, track_progress
 
 COCO_LEN = 123287
 

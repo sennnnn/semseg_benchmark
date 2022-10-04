@@ -8,13 +8,13 @@ from tqdm import tqdm
 from PIL import Image
 from skimage.segmentation import slic, mark_boundaries
 
-from sswss.utils.dcrf import crf_inference
-from sswss.utils.misc import histc
-from sswss.utils.distributed import all_reduce
+from ..utils.dcrf import crf_inference
+from ..utils.misc import histc
+from ..utils.distributed import all_reduce
 
 
 def calculate_iou(pred, gt, num_classes):
-    from sswss.utils.misc import histc
+    from ..utils.misc import histc
     inter = histc(pred[gt == pred].float(), bins=(num_classes), min=0, max=num_classes - 1)
     pred_area = histc(pred.float(), bins=(num_classes), min=0, max=num_classes - 1)
     gt_area = histc(gt.float(), bins=(num_classes), min=0, max=num_classes - 1)

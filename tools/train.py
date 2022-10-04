@@ -8,13 +8,13 @@ import torch.nn as nn
 
 sys.path.append('./')
 
-from sswss.core.opts import get_arguments
-from sswss.datasets import get_dataloader, get_num_classes, get_class_names
-from sswss.models import build_model
-from sswss.core.base_trainer import BaseTrainer
-from sswss.core.config import cfg, cfg_from_file, cfg_from_list
-from sswss.utils.timer import Timer
-from sswss.apis.eval import evaluate
+from sembm.core.opts import get_arguments
+from sembm.datasets import get_dataloader, get_num_classes, get_class_names
+from sembm.models import build_model
+from sembm.core.base_trainer import BaseTrainer
+from sembm.core.config import cfg, cfg_from_file, cfg_from_list
+from sembm.utils.timer import Timer
+from sembm.apis.eval import evaluate
 
 
 class DecTrainer(BaseTrainer):

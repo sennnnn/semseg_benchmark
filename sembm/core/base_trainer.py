@@ -14,9 +14,9 @@ try:  # backward compatibility
 except ImportError:
     from torch.utils.tensorboard import SummaryWriter
 
-from sswss.utils.logging import get_logger
-from sswss.utils.checkpoints import Checkpoint
-from sswss.datasets.utils import Colorize
+from ..utils.logging import get_logger
+from ..utils.checkpoints import Checkpoint
+from ..datasets.utils import Colorize
 from .config import cfg_from_file, cfg_from_list
 
 
@@ -48,7 +48,7 @@ class BaseTrainer(object):
         if not quiet:
             # self.model_id = "%s" % args.run
             self.writer = SummaryWriter(osp.join(self.work_dir, 'tensorboard'))
-            self.logger = get_logger('sswss', osp.join(self.work_dir, 'record.log'))
+            self.logger = get_logger('sembm', osp.join(self.work_dir, 'record.log'))
 
         self.start_epoch = 0
         self.best_score = -1e16

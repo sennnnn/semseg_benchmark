@@ -1,7 +1,7 @@
 from torch import optim
 
-from sswss.datasets.pascal_voc import load_pascal_voc
-from sswss.models import build_model
+from ..datasets.pascal_voc import load_pascal_voc
+from ..models import build_model
 
 
 class DistBaseTrainer(object):

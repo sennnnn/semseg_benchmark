@@ -7,12 +7,12 @@ import torch.multiprocessing as mp
 
 sys.path.append('./')
 
-from sswss.core.opts import get_arguments  # noqa
-from sswss.core.config import cfg, cfg_from_file, cfg_from_list  # noqa
-from sswss.models import build_model  # noqa
-from sswss.datasets import build_dataset  # noqa
-from sswss.utils import (convert_model, is_enabled, is_main_process, build_dataloader, init_process_group)  # noqa
-from sswss.apis import evaluate  # noqa
+from sembm.core.opts import get_arguments  # noqa
+from sembm.core.config import cfg, cfg_from_file, cfg_from_list  # noqa
+from sembm.models import build_model  # noqa
+from sembm.datasets import build_dataset  # noqa
+from sembm.utils import (convert_model, is_enabled, is_main_process, build_dataloader, init_process_group)  # noqa
+from sembm.apis import evaluate  # noqa
 
 
 def main_worker(rank, num_gpus, args):
@@ -86,7 +86,7 @@ def main_worker(rank, num_gpus, args):
     with torch.no_grad():
         IoU = evaluate(model, val_loader, cfg.TEST.USE_GT_LABELS, False, cfg.TEST.SCALES,
                        ['none', 'horizontal'] if cfg.TEST.FLIP else ['none'])
-        # from sswss.apis.eval import evaluate_wvisualize
+        # from sembm.apis.eval import evaluate_wvisualize
         # IoU = evaluate_wvisualize(model, val_loader, cfg.TEST.USE_GT_LABELS, False, cfg.TEST.SCALES,
         #                           ['none', 'horizontal'] if cfg.TEST.FLIP else ['none'])
 

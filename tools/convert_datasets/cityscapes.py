@@ -9,7 +9,7 @@ from cityscapesscripts.preparation.json2labelImg import json2labelImg
 
 sys.path.append('./')
 
-from sswss.utils.progressbar import track_parallel_progress, track_progress
+from sembm.utils.progressbar import track_parallel_progress, track_progress
 
 
 def mkdir_or_exist(dir_name, mode=0o777):

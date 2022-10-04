@@ -10,7 +10,7 @@ from ast import literal_eval
 
 import numpy as np
 
-from sswss.utils.collections import AttrDict
+from ..utils.collections import AttrDict
 
 __C = AttrDict()
 # Consumers can get config by:
@@ -35,6 +35,7 @@ __C.TRAIN.LR_DECAY_EPOCHS = [
     12,
 ]
 __C.TRAIN.LR_DECAY_RATE = 0.1
+__C.TRAIN.LR_DECAY_ALPHA = 0.9
 __C.TRAIN.OPT = 'SGD'
 __C.TRAIN.LR = 0.001
 __C.TRAIN.MOMENTUM = 0.9

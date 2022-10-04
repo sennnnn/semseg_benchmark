@@ -9,8 +9,8 @@ try:  # backward compatibility
 except ImportError:
     from torch.utils.tensorboard import SummaryWriter
 
-from sswss.utils.logging import get_logger
-from sswss.utils.distributed import is_main_process
+from .logging import get_logger
+from .distributed import is_main_process
 
 
 class Writer(object):
@@ -33,7 +33,7 @@ class Writer(object):
     def _build_writers(self):
         if is_main_process():
             self.tensorboard_writer = SummaryWriter(osp.join(self.work_dir, 'tensorboard'))
-            self.logger_writer = get_logger('sswss', osp.join(self.work_dir, 'record.log'))
+            self.logger_writer = get_logger('sembm', osp.join(self.work_dir, 'record.log'))
 
     def _iter_log_losses(self, losses, lr, epoch, iter):
         if is_main_process():

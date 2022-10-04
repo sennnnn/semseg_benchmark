@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-from sswss.models.backbones.base_net import BaseNet
+from .base_net import BaseNet
 
 
 class VGG16d(BaseNet):
@@ -9,7 +9,7 @@ class VGG16d(BaseNet):
     out_channels = [128, 256, 512, 512, 1024]
 
     def __init__(self, fc6_dilation=1):
-        super(VGG16, self).__init__()
+        super(VGG16d, self).__init__()
 
         self.conv1_1 = nn.Conv2d(3, 64, 3, padding=1)
         self.conv1_2 = nn.Conv2d(64, 64, 3, padding=1)

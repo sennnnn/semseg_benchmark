@@ -8,8 +8,8 @@ import torch.nn.functional as F
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
 
-from sswss.models.utils import resize
-from sswss.apis.eval import augmentation, reverse_augmentation
+from .utils import resize
+from ..apis.eval import augmentation, reverse_augmentation
 
 from .backbones.vision_transformer import VisionTransformer, _cfg, vit_small_patch16_224
 
@@ -284,7 +284,7 @@ class MCTformerV2(VisionTransformer):
             # pix_logits_cam = torch.cat([bg, pix_logits_cam], 1)
 
             # import numpy as np
-            # from sswss.utils.dcrf import crf_inference
+            # from sembm.utils.dcrf import crf_inference
             # bgcam_score = torch.tensor(np.load('../../reproduces/weak_sup_semseg/MCTformer/bgcam_score.npy')).cuda()
             # print(pix_logits_cam.shape, bgcam_score.shape)
             # print(torch.allclose(pix_logits_cam[0, 0], bgcam_score[0]))
@@ -321,7 +321,7 @@ class MCTformerV2(VisionTransformer):
             }
 
             import numpy as np
-            from sswss.utils.dcrf import crf_inference
+            from sembm.utils.dcrf import crf_inference
 
             pix_logits_cam = pix_logits_cam[0]
             # bgcam_score = torch.tensor(np.load('../../reproduces/weak_sup_semseg/MCTformer/bgcam_score.npy')).cuda()

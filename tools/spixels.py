@@ -9,9 +9,9 @@ from skimage import io
 
 sys.path.append('./')
 
-from sswss.core.opts import get_arguments  # noqa
-from sswss.core.config import cfg, cfg_from_file, cfg_from_list  # noqa
-from sswss.datasets import build_dataset  # noqa
+from sembm.core.opts import get_arguments  # noqa
+from sembm.core.config import cfg, cfg_from_file, cfg_from_list  # noqa
+from sembm.datasets import build_dataset  # noqa
 
 if __name__ == '__main__':
 

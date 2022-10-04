@@ -10,18 +10,18 @@ from PIL import Image
 
 sys.path.append('./')
 
-from sswss.core.opts import get_arguments
-from sswss.core.config import cfg, cfg_from_file, cfg_from_list
-from sswss.models import build_model
-from sswss.datasets import build_dataset
-from sswss.utils.distributed import build_dataloader
+from sembm.core.opts import get_arguments
+from sembm.core.config import cfg, cfg_from_file, cfg_from_list
+from sembm.models import build_model
+from sembm.datasets import build_dataset
+from sembm.utils.distributed import build_dataloader
 
-from sswss.utils.dcrf import crf_inference
-from sswss.utils.misc import histc
+from sembm.utils.dcrf import crf_inference
+from sembm.utils.misc import histc
 
 
 def calculate_iou(pred, gt, num_classes):
-    from sswss.utils.misc import histc
+    from sembm.utils.misc import histc
     inter = histc(pred[gt == pred].float(), bins=(num_classes), min=0, max=num_classes - 1)
     pred_area = histc(pred.float(), bins=(num_classes), min=0, max=num_classes - 1)
     gt_area = histc(gt.float(), bins=(num_classes), min=0, max=num_classes - 1)
