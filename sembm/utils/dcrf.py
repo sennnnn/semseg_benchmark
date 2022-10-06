@@ -22,8 +22,6 @@ def crf_inference_weaksup(img, probs, t=10, scale_factor=1, labels=21):
 
 
 def crf_inference(img, probs, t=10, scale_factor=1, labels=21):
-    import pydensecrf.densecrf as dcrf
-    from pydensecrf.utils import unary_from_softmax
 
     h, w = img.shape[:2]
     n_labels = labels

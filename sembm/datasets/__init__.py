@@ -2,11 +2,13 @@ from torch.utils import data
 from .pascal_voc import VOCSegmentation
 from .pascal_voc import VOCSegmentation_Augmentation
 from .pascal_voc_pseudo_gt import VOCSegmentationPseudoGT
+from .voc_pseudo_gt import VOCPseudoGT
 
 datasets = {
     'pascal_voc': VOCSegmentation,
     'pascal_voc_daug': VOCSegmentation_Augmentation,
-    'pascal_voc_pseudo_gt': VOCSegmentationPseudoGT
+    'pascal_voc_pseudo_gt': VOCSegmentationPseudoGT,
+    'voc_pseudo_gt': VOCPseudoGT,
 }
 
 
@@ -39,3 +41,5 @@ def build_dataset(cfg, split):
         return VOCSegmentation_Augmentation(cfg, split)
     elif dataset_name == 'pascal_voc_pseudo_gt':
         return VOCSegmentationPseudoGT(cfg, split)
+    elif dataset_name == 'voc_pseudo_gt':
+        return VOCPseudoGT(cfg, split)
