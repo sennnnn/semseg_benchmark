@@ -46,7 +46,6 @@ class Writer(object):
             msg += f"forward time: {self.backward_timepoints[-1] - self.forward_timepoints[-1]:.4f}s | "
             msg += f"backward time: {self.data_timepoints[-1] - self.backward_timepoints[-1]:.4f}s | "
 
-
             if iter % 10 == 0:
                 self.logger_writer.info(msg)
 
@@ -63,6 +62,25 @@ class Writer(object):
                 self.tensorboard_writer.add_scalar(f'val_mIoU_{k}', mIoU, epoch)
                 for idx, class_name in enumerate(classnames):
                     self.tensorboard_writer.add_scalar(f'val_IoU_{k}/{idx:02d}_{class_name}', IoU[idx], epoch)
+
+            log_str = '\n' + class_table.get_string()
+            self.logger_writer.info(log_str)
+
+    def _log_eval(self, classnames, IoU_dict, epoch, iter):
+        if is_main_process():
+            class_table = PrettyTable()
+            class_table.add_column('Class', classnames + ['Mean'])
+            for k, IoU in IoU_dict.items():
+                mIoU = np.mean(IoU)
+                IoU = np.concatenate([IoU, [mIoU]])
+                IoU = np.round(IoU * 100.0, 2)
+                class_table.add_column(f'IoU_{k}', IoU)
+
+                self.tensorboard_writer.add_scalar(f'val_mIoU_epoch_{k}', mIoU, epoch)
+                self.tensorboard_writer.add_scalar(f'val_mIoU_iter_{k}', mIoU, iter)
+                for idx, class_name in enumerate(classnames):
+                    self.tensorboard_writer.add_scalar(f'val_IoU_epoch_{k}/{idx:02d}_{class_name}', IoU[idx], epoch)
+                    self.tensorboard_writer.add_scalar(f'val_IoU_iter_{k}/{idx:02d}_{class_name}', IoU[idx], iter)
 
             log_str = '\n' + class_table.get_string()
             self.logger_writer.info(log_str)

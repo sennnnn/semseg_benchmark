@@ -4,6 +4,7 @@ import random
 
 import cv2
 import numpy as np
+import mmcv
 import torch
 from torch.utils.data import Dataset
 from PIL import Image, ImagePalette
@@ -48,29 +49,34 @@ def crop(img_temp, dim, new_p=True, h_p=0, w_p=0):
 
 def scale_im(img_temp, scale):
     new_dims = (int(img_temp.shape[1] * scale), int(img_temp.shape[0] * scale))
-    return cv2.resize(img_temp, new_dims).astype(float)
+    return cv2.resize(img_temp, new_dims)
 
 
 def scale_gt(img_temp, scale):
     new_dims = (int(img_temp.shape[1] * scale), int(img_temp.shape[0] * scale))
-    return cv2.resize(img_temp, new_dims, interpolation=cv2.INTER_NEAREST).astype(float)
+    return cv2.resize(img_temp, new_dims, interpolation=cv2.INTER_NEAREST)
 
 
-def flip(I, flip_p):
+def flip(img, flip_p):
     if flip_p > 0.5:
-        return np.fliplr(I)
+        return np.fliplr(img)
     else:
-        return I
+        return img
 
 
-def transform(img, mask, crop_size, scale_range):
+def transform(img, mask, pseudo_mask, crop_size, scale_range):
     scale = np.random.uniform(scale_range[0], scale_range[1])
     flip_p = np.random.uniform(0, 1)
     img_temp = scale_im(img, scale)
     raw_img_temp = scale_im(img, scale)
     gt_temp = scale_gt(mask, scale)
+    pseudo_gt_temp = scale_gt(pseudo_mask, scale)
+
     img_temp = flip(img_temp, flip_p)
     gt_temp = flip(gt_temp, flip_p)
+    pseudo_gt_temp = flip(pseudo_gt_temp, flip_p)
+
+    img_temp = img_temp.astype(np.float32)
 
     img_temp[:, :, 0] = (img_temp[:, :, 0] / 255. - 0.485) / 0.229
     img_temp[:, :, 1] = (img_temp[:, :, 1] / 255. - 0.456) / 0.224
@@ -78,9 +84,117 @@ def transform(img, mask, crop_size, scale_range):
 
     img_temp, img_temp_h_p, img_temp_w_p = crop(img_temp, crop_size)
     gt_temp = crop(gt_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
+    pseudo_gt_temp = crop(pseudo_gt_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
     raw_img = crop(raw_img_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
 
-    return img_temp, gt_temp, raw_img
+    return img_temp, gt_temp, pseudo_gt_temp, raw_img
+
+
+def convert(img, alpha=1, beta=0):
+    """Multiple with alpha and add beat with clip."""
+    img = img.astype(np.float32) * alpha + beta
+    img = np.clip(img, 0, 255)
+    return img.astype(np.uint8)
+
+
+def brightness(img, brightness_delta):
+    """Brightness distortion."""
+    if random.randint(0, 2):
+        return convert(img, beta=random.uniform(-brightness_delta, brightness_delta))
+    return img
+
+
+def contrast(img, contrast_lower, contrast_upper):
+    """Contrast distortion."""
+    if random.randint(0, 2):
+        return convert(img, alpha=random.uniform(contrast_lower, contrast_upper))
+    return img
+
+
+def saturation(img, saturation_lower, saturation_upper):
+    """Saturation distortion."""
+    if random.randint(0, 2):
+        img = mmcv.bgr2hsv(img)
+        img[:, :, 1] = convert(img[:, :, 1], alpha=random.uniform(saturation_lower, saturation_upper))
+        img = mmcv.hsv2bgr(img)
+    return img
+
+
+def hue(img, hue_delta):
+    """Hue distortion."""
+    if random.randint(0, 2):
+        img = mmcv.bgr2hsv(img)
+        img[:, :, 0] = (img[:, :, 0].astype(int) + random.randint(-hue_delta, hue_delta)) % 180
+        img = mmcv.hsv2bgr(img)
+    return img
+
+
+def colorjitter(img, p=0.8, brightness_delta=32, contrast_range=(0.5, 1.5), saturation_range=(0.5, 1.5), hue_delta=18):
+    if random.random() < p:
+        contrast_lower, contrast_upper = contrast_range
+        saturation_lower, saturation_upper = saturation_range
+
+        # random brightness
+        img = brightness(img, brightness_delta)
+
+        # mode == 0 --> do random contrast first
+        # mode == 1 --> do random contrast last
+        mode = random.randint(0, 2)
+        if mode == 1:
+            img = contrast(img, contrast_lower, contrast_upper)
+
+        # random saturation
+        img = saturation(img, saturation_lower, saturation_upper)
+
+        # random hue
+        img = hue(img, hue_delta)
+
+        # random contrast
+        if mode == 0:
+            img = contrast(img, contrast_lower, contrast_upper)
+
+    return img
+
+
+def blur(img, p=0.5):
+    if random.random() < p:
+        img = cv2.blur(img, (5, 5))
+
+    return img
+
+
+def transform_strongaug(img, mask, pseudo_mask, crop_size, scale_range):
+    scale = np.random.uniform(scale_range[0], scale_range[1])
+    flip_p = np.random.uniform(0, 1)
+    img_temp = scale_im(img, scale)
+    raw_img_temp = scale_im(img, scale)
+    gt_temp = scale_gt(mask, scale)
+    pseudo_gt_temp = scale_gt(pseudo_mask, scale)
+
+    img_temp = flip(img_temp, flip_p)
+    gt_temp = flip(gt_temp, flip_p)
+    pseudo_gt_temp = flip(pseudo_gt_temp, flip_p)
+
+    img_s_temp = colorjitter(img_temp.copy())
+
+    img_temp = img_temp.astype(np.float32)
+    img_s_temp = img_s_temp.astype(np.float32)
+
+    img_temp[:, :, 0] = (img_temp[:, :, 0] / 255. - 0.485) / 0.229
+    img_temp[:, :, 1] = (img_temp[:, :, 1] / 255. - 0.456) / 0.224
+    img_temp[:, :, 2] = (img_temp[:, :, 2] / 255. - 0.406) / 0.225
+
+    img_s_temp[:, :, 0] = (img_s_temp[:, :, 0] / 255. - 0.485) / 0.229
+    img_s_temp[:, :, 1] = (img_s_temp[:, :, 1] / 255. - 0.456) / 0.224
+    img_s_temp[:, :, 2] = (img_s_temp[:, :, 2] / 255. - 0.406) / 0.225
+
+    img_temp, img_temp_h_p, img_temp_w_p = crop(img_temp, crop_size)
+    img_s_temp = crop(img_s_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
+    gt_temp = crop(gt_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
+    pseudo_gt_temp = crop(pseudo_gt_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
+    raw_img_temp = crop(raw_img_temp, crop_size, False, img_temp_h_p, img_temp_w_p)[0]
+
+    return img_temp, img_s_temp, gt_temp, pseudo_gt_temp, raw_img_temp
 
 
 class VOC(Dataset):
@@ -180,11 +294,12 @@ class VOC(Dataset):
 
 class VOCPseudoGT(VOC):
 
-    def __init__(self, cfg, split, root=os.path.expanduser('./data/pascal_voc')):
+    def __init__(self, cfg, split, test_mode, root=os.path.expanduser('./data/pascal_voc/')):
         super(VOCPseudoGT, self).__init__()
 
         self.root = root
         self.split = split
+        self.test_mode = test_mode
         self.pseudo_gt_path = cfg.DATASET.PSEUDO_GT_PATH
         self.crop_size = cfg.DATASET.CROP_SIZE
         self.scale_range = (cfg.DATASET.SCALE_FROM, cfg.DATASET.SCALE_TO)
@@ -196,17 +311,113 @@ class VOCPseudoGT(VOC):
             _split_f = os.path.join(self.root, 'train_id.txt')
         elif self.split == 'val':
             _split_f = os.path.join(self.root, 'val_id.txt')
+        elif self.split == 'test':
+            _split_f = os.path.join(self.root, 'test_id.txt')
         else:
             raise RuntimeError('Unknown dataset split.')
 
         assert os.path.isfile(_split_f), "%s not found" % _split_f
 
         self.image_folder = osp.join(self.root, 'VOC2012/JPEGImages')
-        self.mask_folder = osp.join(
-            self.root, 'VOC2012/SegmentationClassAug') if self.split in ['val', 'test'] else self.pseudo_gt_path
+        self.mask_folder = osp.join(self.root, 'VOC2012/SegmentationClassAug') if self.split not in ['test'] else None
+        self.pseudo_mask_folder = self.pseudo_gt_path if self.split not in ['test'] else None
 
         self.images = []
         self.masks = []
+        self.pseudo_masks = []
+        with open(_split_f, "r") as lines:
+            for line in lines:
+                name = line.strip()
+                _image = osp.join(self.image_folder, f'{name}.jpg')
+                self.images.append(_image)
+                if self.mask_folder is not None:
+                    _mask = osp.join(self.mask_folder, f'{name}.png')
+                    self.masks.append(_mask)
+                if self.pseudo_mask_folder is not None:
+                    _pseudo_mask = osp.join(self.pseudo_mask_folder, f'{name}.png')
+                    self.pseudo_masks.append(_pseudo_mask)
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, index):
+        img = cv2.imread(self.images[index])
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        dataset_dict = {}
+        dataset_dict.update({'img': img, 'filename': osp.basename(self.images[index]), 'seg_fileds': []})
+
+        if self.mask_folder is not None:
+            mask = np.asarray(Image.open(self.masks[index]))
+
+            unique_labels = np.unique(mask)
+
+            # ambigious
+            unique_labels = unique_labels[unique_labels != 255]
+            unique_labels = unique_labels[unique_labels != 0]
+            unique_labels -= 1  # shifting since no BG class
+            # ignoring BG
+            labels = torch.zeros(self.NUM_CLASSES - 1)
+
+            labels[unique_labels.tolist()] = 1
+
+            dataset_dict['pix_gt'] = mask
+            dataset_dict['img_gt'] = labels
+            dataset_dict['seg_fileds'].append('pix_gt')
+
+        if self.pseudo_mask_folder is not None:
+            pseudo_mask = np.asarray(Image.open(self.pseudo_masks[index]))
+            dataset_dict['pseudo_pix_gt'] = pseudo_mask
+            dataset_dict['seg_fileds'].append('pseudo_pix_gt')
+
+        if not self.test_mode:
+            img, pix_gt, pseudo_pix_gt, raw_img = transform(img, mask, pseudo_mask, self.crop_size, self.scale_range)
+
+            dataset_dict['img'] = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float()
+            dataset_dict['pix_gt'] = torch.from_numpy(np.ascontiguousarray(pix_gt)).float()
+            dataset_dict['pseudo_pix_gt'] = torch.from_numpy(np.ascontiguousarray(pseudo_pix_gt)).float()
+            dataset_dict['raw_img'] = torch.from_numpy(np.ascontiguousarray(raw_img)).permute(2, 0, 1).float()
+        else:
+            # general resize, normalize and toTensor
+            dataset_dict = tf.MaskNormalize(self.MEAN, self.STD)(dataset_dict)
+
+        return dataset_dict
+
+
+class VOCPseudoGTDual(VOC):
+
+    def __init__(self, cfg, split, test_mode, root=os.path.expanduser('./data/pascal_voc/')):
+        super(VOCPseudoGTDual, self).__init__()
+
+        self.root = root
+        self.split = split
+        self.test_mode = test_mode
+        self.pseudo_gt_path = cfg.DATASET.PSEUDO_GT_PATH
+        self.crop_size = cfg.DATASET.CROP_SIZE
+        self.scale_range = (cfg.DATASET.SCALE_FROM, cfg.DATASET.SCALE_TO)
+
+        # train/val/test splits are pre-cut
+        if self.split == 'train':
+            _split_f = os.path.join(self.root, 'train_aug_id.txt')
+        elif self.split == 'train_voc':
+            _split_f = os.path.join(self.root, 'train_id.txt')
+        elif self.split == 'val':
+            # _split_f = os.path.join(self.root, 'train_id.txt')
+            _split_f = os.path.join(self.root, 'val_id.txt')
+        elif self.split == 'test':
+            _split_f = os.path.join(self.root, 'test_id.txt')
+        else:
+            raise RuntimeError('Unknown dataset split.')
+
+        assert os.path.isfile(_split_f), "%s not found" % _split_f
+
+        self.image_folder = osp.join(self.root, 'VOC2012/JPEGImages')
+        self.mask_folder = osp.join(self.root, 'VOC2012/SegmentationClassAug')
+        self.pseudo_mask_folder = self.pseudo_gt_path if self.split not in ['test'] else None
+
+        self.images = []
+        self.masks = []
+        self.pseudo_masks = []
         with open(_split_f, "r") as lines:
             for line in lines:
                 name = line.strip()
@@ -214,22 +425,9 @@ class VOCPseudoGT(VOC):
                 _mask = osp.join(self.mask_folder, f'{name}.png')
                 self.images.append(_image)
                 self.masks.append(_mask)
-
-        if self.split in ['train', 'train_voc']:
-            self.transform = tf.Compose([
-                tf.MaskRandResizedCrop(
-                    size=cfg.DATASET.CROP_SIZE, scale=(cfg.DATASET.SCALE_FROM, cfg.DATASET.SCALE_TO)),
-                tf.MaskHFlip(),
-                # tf.MaskColourJitter(p=0.5, brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-                # tf.MaskRandGrayscale(p=0.2),
-                tf.MaskNormalize(self.MEAN, self.STD)
-            ])
-            # NOTE: This type of transform seems to have higher performance
-            # self.transform = tf.Compose(
-            #     [tf.MaskFixResize(cfg.DATASET.CROP_SIZE),
-            #      tf.MaskNormalize(self.MEAN, self.STD)])
-        elif self.split in ['val', 'test']:
-            self.transform = tf.Compose([tf.MaskNormalize(self.MEAN, self.STD)])
+                if self.pseudo_mask_folder is not None:
+                    _pseudo_mask = osp.join(self.pseudo_mask_folder, f'{name}.png')
+                    self.pseudo_masks.append(_pseudo_mask)
 
     def __len__(self):
         return len(self.images)
@@ -242,16 +440,12 @@ class VOCPseudoGT(VOC):
         unique_labels = np.unique(mask)
 
         # ambigious
-        if unique_labels[-1] == self.CLASS_IDX['unlabeled']:
-            unique_labels = unique_labels[:-1]
-
+        unique_labels = unique_labels[unique_labels != 255]
+        unique_labels = unique_labels[unique_labels != 0]
+        unique_labels -= 1  # shifting since no BG class
         # ignoring BG
         labels = torch.zeros(self.NUM_CLASSES - 1)
-        if unique_labels[0] == self.CLASS_IDX['background']:
-            unique_labels = unique_labels[1:]
-        unique_labels -= 1  # shifting since no BG class
 
-        # assert unique_labels.size > 0, 'No labels found in %s' % self.masks[index]
         labels[unique_labels.tolist()] = 1
 
         dataset_dict = {}
@@ -260,16 +454,24 @@ class VOCPseudoGT(VOC):
             'pix_gt': mask,
             'img_gt': labels,
             'filename': osp.basename(self.images[index]),
+            'seg_fileds': ['pix_gt']
         })
 
-        if self.split in ['train', 'train_voc']:
-            # dataset_dict = self.transform(dataset_dict)
-            img, pix_gt, raw_img = transform(img, mask, self.crop_size, self.scale_range)
+        if self.pseudo_mask_folder is not None:
+            pseudo_mask = np.asarray(Image.open(self.pseudo_masks[index]))
+            dataset_dict['pseudo_pix_gt'] = pseudo_mask
+            dataset_dict['seg_fileds'].append('pseudo_pix_gt')
+
+        if not self.test_mode:
+            img, img_s, pix_gt, pseudo_pix_gt, raw_img = transform_strongaug(img, mask, pseudo_mask, self.crop_size,
+                                                                             self.scale_range)
             dataset_dict['img'] = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float()
+            dataset_dict['img_s'] = torch.from_numpy(np.ascontiguousarray(img_s)).permute(2, 0, 1).float()
             dataset_dict['pix_gt'] = torch.from_numpy(np.ascontiguousarray(pix_gt)).float()
+            dataset_dict['pseudo_pix_gt'] = torch.from_numpy(np.ascontiguousarray(pseudo_pix_gt)).float()
             dataset_dict['raw_img'] = torch.from_numpy(np.ascontiguousarray(raw_img)).permute(2, 0, 1).float()
         else:
             # general resize, normalize and toTensor
-            dataset_dict = self.transform(dataset_dict)
+            dataset_dict = tf.MaskNormalize(self.MEAN, self.STD)(dataset_dict)
 
         return dataset_dict

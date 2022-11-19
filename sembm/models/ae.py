@@ -30,10 +30,10 @@ class AE(BaseNet):
         self._init_decoder(num_classes)
 
     def _init_backbone(self, backbone_name, pre_weights_path):
-        if backbone_name == "resnet38":
+        if backbone_name == "resnet38d":
             print("Backbone: ResNet38")
             self.backbone = ResNet38d(norm_layer=self.norm_layer)
-        elif backbone_name == "vgg16":
+        elif backbone_name == "vgg16d":
             print("Backbone: VGG16")
             self.backbone = VGG16d()
         elif backbone_name == "resnet50":
@@ -148,7 +148,6 @@ class AE(BaseNet):
         img_gt = batched_input['img_gt'].cuda()
 
         H, W = raw_img.shape[-2:]
-        img_preds = []
         pix_preds = []
         for scale in scales:
             for flip_direction in flip_directions:
@@ -168,10 +167,8 @@ class AE(BaseNet):
                 pix_logits = reverse_augmentation(pix_logits, scale, flip_direction, (H, W))
                 pix_probs = reverse_augmentation(pix_probs, scale, flip_direction, (H, W))
 
-                img_preds.append(img_logits)
                 pix_preds.append(pix_probs)
 
-        img_pred = sum(img_preds) / len(img_preds)
         pix_pred = sum(pix_preds) / len(pix_preds)
 
         # pix_pred = pix_pred[:, 1:]
@@ -189,14 +186,14 @@ class AE(BaseNet):
         # scale background by alpha power
         pix_pred[:, 0, ::] = torch.pow(pix_pred[:, 0, ::], 3)
 
-        return img_pred, pix_pred
+        return pix_pred
 
     def forward(self, batched_inputs):
-        raw_img = batched_inputs['raw_img']
         img = batched_inputs['img']
-        img_gt = batched_inputs['img_gt']
 
         if self.training:
+            raw_img = batched_inputs['raw_img']
+            img_gt = batched_inputs['img_gt']
             img_logits, pix_logits, pix_probs = self.inference(img)
 
             losses = {}
@@ -220,11 +217,3 @@ class AE(BaseNet):
         else:
             return self.tta_inference(batched_inputs, batched_inputs['gt_label_filter'], batched_inputs['scales'],
                                       batched_inputs['flip_directions'])
-            pix_probs = resize(pix_probs, img.shape[-2:])
-            pix_logits = resize(pix_logits, img.shape[-2:])
-
-            return {
-                'img_logits': img_logits,
-                'pix_probs_cam': pix_probs,
-                'pix_logits_cam': pix_logits,
-            }

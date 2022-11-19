@@ -10,7 +10,7 @@ from .utils import resize
 from ..apis.eval import augmentation, reverse_augmentation
 
 
-class Deeplabv1(BaseNet):
+class Deeplabv1Cls(BaseNet):
 
     def __init__(self, backbone_name, pre_weights_path, norm_type='syncbn', num_classes=21):
         super().__init__()
@@ -28,7 +28,13 @@ class Deeplabv1(BaseNet):
         self.fc8_seg_conv2 = nn.Conv2d(512, num_classes, (3, 3), stride=1, padding=12, dilation=12, bias=True)
         torch.nn.init.xavier_uniform_(self.fc8_seg_conv2.weight)
 
-        self.from_scratch_layers = [self.fc8_seg_conv1, self.fc8_seg_conv2]
+        self.fc8_cam_conv1 = nn.Conv2d(4096, 512, 1, stride=1)
+        torch.nn.init.xavier_uniform_(self.fc8_cam_conv1.weight)
+
+        self.fc8_cam_conv2 = nn.Conv2d(512, num_classes - 1, 1, stride=1)
+        torch.nn.init.xavier_uniform_(self.fc8_cam_conv2.weight)
+
+        self.from_scratch_layers = [self.fc8_seg_conv1, self.fc8_seg_conv2, self.fc8_cam_conv1, self.fc8_cam_conv2]
 
     def _init_backbone(self, backbone_name, pre_weights_path):
 
@@ -74,9 +80,13 @@ class Deeplabv1(BaseNet):
         x_seg = F.relu(self.fc8_seg_conv1(x))
         x_seg = self.fc8_seg_conv2(x_seg)
 
+        x_cls = F.relu(self.fc8_cam_conv1(x))
+        x_cls = self.fc8_cam_conv2(x_cls)
+
+        x_cls = F.adaptive_avg_pool2d(x_cls, (1, 1))[:, :, 0, 0]
         x_seg = resize(x_seg, img.shape[-2:], align_corners=False)
 
-        return x_seg
+        return x_cls, x_seg
 
     def tta_inference(self, batched_input, scales=[1.0], flip_directions=['none']):
         raw_img = batched_input['raw_img'].cuda()
@@ -89,7 +99,7 @@ class Deeplabv1(BaseNet):
             for flip_direction in flip_directions:
 
                 simg = augmentation(img, scale, flip_direction, (H, W))
-                pix_logits = self.inference(simg)
+                _, pix_logits = self.inference(simg)
                 pix_logits = reverse_augmentation(pix_logits, scale, flip_direction, (H, W))
                 pix_preds.append(pix_logits)
 
@@ -98,11 +108,13 @@ class Deeplabv1(BaseNet):
 
     def forward(self, batched_inputs):
         img = batched_inputs['img']
+        img_gt = batched_inputs['img_gt']
         pix_gt = batched_inputs['pseudo_pix_gt']
 
         if self.training:
-            pix_logits = self.inference(img)
+            img_logits, pix_logits = self.inference(img)
             losses = {}
+            losses['loss_cls'] = F.multilabel_soft_margin_loss(img_logits, img_gt)
             losses['loss_mask'] = F.cross_entropy(pix_logits, pix_gt.long(), ignore_index=255).mean()
 
             return losses

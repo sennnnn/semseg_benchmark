@@ -3,12 +3,16 @@ from .pascal_voc import VOCSegmentation
 from .pascal_voc import VOCSegmentation_Augmentation
 from .pascal_voc_pseudo_gt import VOCSegmentationPseudoGT
 from .voc_pseudo_gt import VOCPseudoGT
+from .coco_pseudo_gt import COCOPseudoGT
+from .voc_pseudo_gt import VOCPseudoGTDual
 
 datasets = {
     'pascal_voc': VOCSegmentation,
     'pascal_voc_daug': VOCSegmentation_Augmentation,
     'pascal_voc_pseudo_gt': VOCSegmentationPseudoGT,
     'voc_pseudo_gt': VOCPseudoGT,
+    'coco_pseudo_gt': COCOPseudoGT,
+    'voc_pseudo_gt_dual': VOCPseudoGTDual,
 }
 
 
@@ -33,7 +37,7 @@ def get_dataloader(dataset_name, cfg, split, batch_size, num_workers, test_mode=
     return data.DataLoader(dataset, batch_size=batch_size, drop_last=drop_last, shuffle=shuffle, **kwargs)
 
 
-def build_dataset(cfg, split):
+def build_dataset(cfg, split, test_mode=False):
     dataset_name = cfg.DATASET.NAME
     if dataset_name == 'pascal_voc':
         return VOCSegmentation(cfg, split)
@@ -42,4 +46,8 @@ def build_dataset(cfg, split):
     elif dataset_name == 'pascal_voc_pseudo_gt':
         return VOCSegmentationPseudoGT(cfg, split)
     elif dataset_name == 'voc_pseudo_gt':
-        return VOCPseudoGT(cfg, split)
+        return VOCPseudoGT(cfg, split, test_mode)
+    elif dataset_name == 'coco_pseudo_gt':
+        return COCOPseudoGT(cfg, split, test_mode)
+    elif dataset_name == 'voc_pseudo_gt_dual':
+        return VOCPseudoGTDual(cfg, split, test_mode)

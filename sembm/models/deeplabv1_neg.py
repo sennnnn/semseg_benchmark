@@ -10,7 +10,7 @@ from .utils import resize
 from ..apis.eval import augmentation, reverse_augmentation
 
 
-class Deeplabv1(BaseNet):
+class Deeplabv1Neg(BaseNet):
 
     def __init__(self, backbone_name, pre_weights_path, norm_type='syncbn', num_classes=21):
         super().__init__()
@@ -98,12 +98,25 @@ class Deeplabv1(BaseNet):
 
     def forward(self, batched_inputs):
         img = batched_inputs['img']
+        img_gt = batched_inputs['img_gt']
         pix_gt = batched_inputs['pseudo_pix_gt']
 
+        reverse_img_gt = 1 - img_gt
         if self.training:
             pix_logits = self.inference(img)
             losses = {}
             losses['loss_mask'] = F.cross_entropy(pix_logits, pix_gt.long(), ignore_index=255).mean()
+
+            neg_loss = 0
+            neg_gt = torch.cat([torch.zeros_like(reverse_img_gt[:, :1]), reverse_img_gt], dim=1)
+            neg_gt = neg_gt[:, :, None, None].repeat(1, 1, img.shape[-2], img.shape[-1])
+            for i in range(15):
+                _neg_gt = neg_gt + torch.rand_like(neg_gt)
+                _neg_gt = torch.argmax(_neg_gt, dim=1)
+
+                neg_logits = torch.log(torch.clamp(1. - F.softmax(pix_logits, dim=1), min=1e-5, max=1.))
+                neg_loss += F.nll_loss(neg_logits, _neg_gt.long())
+            losses['loss_neg_mask'] = neg_loss
 
             return losses
         else:

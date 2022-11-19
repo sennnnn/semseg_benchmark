@@ -1,3 +1,4 @@
+from threading import local
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +11,7 @@ from .utils import resize
 from ..apis.eval import augmentation, reverse_augmentation
 
 
-class Deeplabv1(BaseNet):
+class Deeplabv1CAN(BaseNet):
 
     def __init__(self, backbone_name, pre_weights_path, norm_type='syncbn', num_classes=21):
         super().__init__()
@@ -81,7 +82,7 @@ class Deeplabv1(BaseNet):
     def tta_inference(self, batched_input, scales=[1.0], flip_directions=['none']):
         raw_img = batched_input['raw_img'].cuda()
         img = batched_input['img'].cuda()
-        # img_gt = batched_input['img_gt'].cuda()
+        img_gt = batched_input['img_gt'].cuda()
         H, W = raw_img.shape[-2:]
         pix_preds = []
 
@@ -90,6 +91,7 @@ class Deeplabv1(BaseNet):
 
                 simg = augmentation(img, scale, flip_direction, (H, W))
                 pix_logits = self.inference(simg)
+                # pix_logits[:, 1:, :, :] = pix_logits[:, 1:, :, :] * img_gt[:, :, None, None]
                 pix_logits = reverse_augmentation(pix_logits, scale, flip_direction, (H, W))
                 pix_preds.append(pix_logits)
 
@@ -98,12 +100,56 @@ class Deeplabv1(BaseNet):
 
     def forward(self, batched_inputs):
         img = batched_inputs['img']
-        pix_gt = batched_inputs['pseudo_pix_gt']
+        img_gt = batched_inputs['img_gt']
+        pix_gt = batched_inputs['pix_gt']
+        pseudo_pix_gt = batched_inputs['pseudo_pix_gt']
 
         if self.training:
             pix_logits = self.inference(img)
             losses = {}
-            losses['loss_mask'] = F.cross_entropy(pix_logits, pix_gt.long(), ignore_index=255).mean()
+            losses['loss_mask'] = F.cross_entropy(pix_logits, pseudo_pix_gt.long(), ignore_index=255).mean()
+
+            pix_preds = torch.argmax(pix_logits.detach(), dim=1)
+            # including logits
+            can_loss = 0
+            for pix_logit, pix_pred, ig, ppg, pg in zip(pix_logits, pix_preds, img_gt, pseudo_pix_gt, pix_gt):
+                class_ids = torch.nonzero(ig)[:, 0] + 1
+                reverse_class_ids = torch.nonzero((1 - ig))[:, 0] + 1
+
+                pred_class_ids = torch.unique(pix_pred)
+                pred_class_ids = pred_class_ids[pred_class_ids != 0]
+                # print(pred_class_ids, class_ids)
+
+                # pix_pred
+                # print(class_ids, reverse_class_ids)
+                in_logit = pix_logit[class_ids]
+                in_logit = torch.cat([pix_logit[:1], in_logit], dim=0)
+                out_logit = pix_logit[reverse_class_ids]
+
+                # print(pix_logit[0, 23, 23])
+                # print(in_logit[:, 23, 23])
+                # print(out_logit[:, 23, 23])
+                in_logit, _ = torch.topk(in_logit, k=1, dim=0)
+                out_logit, _ = torch.topk(out_logit, k=1, dim=0)
+                # print(out_logit[:, 23, 23])
+                # print(pg[23, 23], ppg[23, 23])
+                local_loss = nn.Softplus()(torch.logsumexp(-in_logit, dim=0) + torch.logsumexp(out_logit, dim=0))
+                # local_loss_ = torch.log(1 + 1e-5 +
+                #                         torch.sum(torch.exp(-in_logit), dim=0) * torch.sum(torch.exp(out_logit), dim=0))
+                # print(local_loss.mean(), local_loss_.mean())
+                # exit(0)
+                # local_loss = local_loss[pix_pred != 0]
+                local_loss = torch.sum(local_loss) if len(local_loss) == 0 else local_loss.mean()
+                # if torch.isnan(local_loss):
+                #     print(
+                #         torch.log(1 + 1e-5 +
+                #                   torch.sum(torch.exp(-in_logit), dim=0) * torch.sum(torch.exp(out_logit), dim=0)))
+                #     print(
+                #         torch.log(1 + 1e-5 + torch.sum(torch.exp(-in_logit), dim=0) *
+                #                   torch.sum(torch.exp(out_logit), dim=0))[pg != 0].mean())
+                can_loss += local_loss
+
+            losses['loss_can_mask'] = can_loss / img_gt.shape[0]
 
             return losses
         else:

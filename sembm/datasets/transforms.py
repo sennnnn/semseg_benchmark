@@ -29,15 +29,14 @@ class MaskRandResizedCrop:
 
     def __call__(self, results):
         image = results['img']
-        pixel_gt = results['pix_gt']
+        seg_fileds = results['seg_fileds']
 
         i, j, h, w = self.get_params(image)
 
-        image = F.resized_crop(image, i, j, h, w, self.rnd_crop.size, Image.CUBIC)
-        pixel_gt = F.resized_crop(pixel_gt, i, j, h, w, self.rnd_crop.size, Image.NEAREST)
+        results['img'] = F.resized_crop(image, i, j, h, w, self.rnd_crop.size, Image.CUBIC)
+        for key in seg_fileds:
+            results[key] = F.resized_crop(results[key], i, j, h, w, self.rnd_crop.size, Image.NEAREST)
 
-        results['img'] = image
-        results['pix_gt'] = pixel_gt
         results['crop_box'] = [j, i, w, h]  # xywh
 
         return results
@@ -53,13 +52,11 @@ class MaskFixResize:
 
     def __call__(self, results):
         image = results['img']
-        pixel_gt = results['pix_gt']
+        seg_fileds = results['seg_fileds']
 
-        image = F.resize(image, self.size)
-        pixel_gt = F.resize(pixel_gt, self.size, Image.NEAREST)
-
-        results['img'] = image
-        results['pix_gt'] = pixel_gt
+        results['img'] = F.resize(image, self.size)
+        for key in seg_fileds:
+            results[key] = F.resize(results[key], self.size, Image.NEAREST)
 
         return results
 
@@ -71,16 +68,14 @@ class MaskHFlip:
 
     def __call__(self, results):
         image = results['img']
-        pixel_gt = results['pix_gt']
+        seg_fileds = results['seg_fileds']
 
         results['hflip'] = False
         if random.random() < self.p:
-            image = F.hflip(image)
-            pixel_gt = F.hflip(pixel_gt)
+            results['img'] = F.hflip(image)
+            for key in seg_fileds:
+                results[key] = F.hflip(results[key])
             results['hflip'] = True
-
-        results['img'] = image
-        results['pix_gt'] = pixel_gt
 
         return results
 
@@ -95,17 +90,13 @@ class MaskNormalize:
 
     def __call__(self, results):
         image = results['img']
-        pixel_gt = results['pix_gt']
+        seg_fileds = results['seg_fileds']
 
-        raw_image = image.copy()
-        raw_image = F.to_tensor(raw_image)
-        image = F.to_tensor(image)
-        image = self.norm(image)
-        pixel_gt = self.__toByteTensor(pixel_gt)
+        results['raw_img'] = F.to_tensor(image) * 255
+        results['img'] = self.norm(F.to_tensor(image))
 
-        results['raw_img'] = raw_image * 255
-        results['img'] = image
-        results['pix_gt'] = pixel_gt
+        for key in seg_fileds:
+            results[key] = self.__toByteTensor(results[key])
 
         return results
 
@@ -163,13 +154,9 @@ class MaskColourJitter:
 
     def __call__(self, results):
         image = results['img']
-        pixel_gt = results['pix_gt']
 
         if random.random() < self.p:
-            image = self.jitter(image)
-
-        results['img'] = image
-        results['pix_gt'] = pixel_gt
+            results['img'] = self.jitter(image)
 
         return results
 
@@ -205,14 +192,10 @@ class MaskRandGrayscale:
 
     def __call__(self, results):
         image = results['img']
-        pixel_gt = results['pix_gt']
 
         num_output_channels = _get_image_num_channels(image)
         if torch.rand(1) < self.p:
-            image, pixel_gt = to_grayscale(image, num_output_channels=num_output_channels), pixel_gt
-
-        results['img'] = image
-        results['pix_gt'] = pixel_gt
+            results['img'] = to_grayscale(image, num_output_channels=num_output_channels)
 
         return results
 
@@ -226,14 +209,12 @@ class MaskPad:
 
     def __call__(self, results):
         image = results['img']
-        pix_gt = results['pix_gt']
+        seg_fileds = results['seg_fileds']
 
         h, w = image.height, image.width
         pad_h, pad_w = max(self.pad_size[0] - h, 0), max(self.pad_size[1] - w, 0)
-        image = F.pad(image, padding=(0, 0, pad_w, pad_h), fill=0, padding_mode='constant')
-        pix_gt = F.pad(pix_gt, padding=(0, 0, pad_w, pad_h), fill=255, padding_mode='constant')
-
-        results['img'] = image
-        results['pix_gt'] = pix_gt
+        results['img'] = F.pad(image, padding=(0, 0, pad_w, pad_h), fill=0, padding_mode='constant')
+        for key in seg_fileds:
+            results[key] = F.pad(results[key], padding=(0, 0, pad_w, pad_h), fill=255, padding_mode='constant')
 
         return results

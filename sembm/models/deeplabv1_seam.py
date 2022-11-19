@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +11,7 @@ from .utils import resize
 from ..apis.eval import augmentation, reverse_augmentation
 
 
-class Deeplabv1(BaseNet):
+class Deeplabv1SEAM(BaseNet):
 
     def __init__(self, backbone_name, pre_weights_path, norm_type='syncbn', num_classes=21):
         super().__init__()
@@ -22,13 +23,14 @@ class Deeplabv1(BaseNet):
 
         self._init_backbone(backbone_name, pre_weights_path)
 
-        self.fc8_seg_conv1 = nn.Conv2d(4096, 512, (3, 3), stride=1, padding=12, dilation=12, bias=True)
-        torch.nn.init.xavier_uniform_(self.fc8_seg_conv1.weight)
+        self.conv_fov = nn.Conv2d(4096, 512, 3, 1, padding=12, dilation=12, bias=False)
+        self.bn_fov = self.norm_layer(512, momentum=0.0003, affine=True)
+        self.conv_fov2 = nn.Conv2d(512, 512, 1, 1, padding=0, bias=False)
+        self.bn_fov2 = self.norm_layer(512, momentum=0.0003, affine=True)
+        self.dropout1 = nn.Dropout(0.5)
+        self.cls_conv = nn.Conv2d(512, num_classes, 1, 1, padding=0)
 
-        self.fc8_seg_conv2 = nn.Conv2d(512, num_classes, (3, 3), stride=1, padding=12, dilation=12, bias=True)
-        torch.nn.init.xavier_uniform_(self.fc8_seg_conv2.weight)
-
-        self.from_scratch_layers = [self.fc8_seg_conv1, self.fc8_seg_conv2]
+        self.from_scratch_layers = [self.conv_fov, self.conv_fov2, self.cls_conv]
 
     def _init_backbone(self, backbone_name, pre_weights_path):
 
@@ -52,27 +54,23 @@ class Deeplabv1(BaseNet):
             weights_dict = torch.load(pre_weights_path, map_location='cpu')
             self.backbone.load_state_dict(weights_dict, False)
 
-        if hasattr(self.backbone, '_lr_mult'):
-            self._lr_mult = self.backbone._lr_mult
-
-        if hasattr(self.backbone, 'not_training'):
-            self.not_training = self.not_training + self.backbone.not_training
-
-        if hasattr(self.backbone, 'bn_frozen'):
-            self.bn_frozen = self.bn_frozen + self.backbone.bn_frozen
-
-        if hasattr(self.backbone, 'from_scratch_layers'):
-            self.from_scratch_layers = self.from_scratch_layers + self.backbone.from_scratch_layers
-
-        self._fix_running_stats(self.backbone, fix_params=True)  # freeze backbone BNs
+        if not hasattr(self, '_lr_mult'):
+            if hasattr(self.backbone, '_lr_mult'):
+                self._lr_mult = self.backbone._lr_mult
 
     def _lr_mult(self):
-        return 1., 1., 10., 10.
+        return 1., 2., 10., 20.
 
     def inference(self, img):
         x = self.backbone.forward(img)
-        x_seg = F.relu(self.fc8_seg_conv1(x))
-        x_seg = self.fc8_seg_conv2(x_seg)
+        feature = self.conv_fov(x)
+        feature = self.bn_fov(feature)
+        feature = F.relu(feature, inplace=True)
+        feature = self.conv_fov2(feature)
+        feature = self.bn_fov2(feature)
+        feature = F.relu(feature, inplace=True)
+        feature = self.dropout1(feature)
+        x_seg = self.cls_conv(feature)
 
         x_seg = resize(x_seg, img.shape[-2:], align_corners=False)
 
@@ -81,7 +79,7 @@ class Deeplabv1(BaseNet):
     def tta_inference(self, batched_input, scales=[1.0], flip_directions=['none']):
         raw_img = batched_input['raw_img'].cuda()
         img = batched_input['img'].cuda()
-        # img_gt = batched_input['img_gt'].cuda()
+        img_gt = batched_input['img_gt'].cuda()
         H, W = raw_img.shape[-2:]
         pix_preds = []
 
@@ -90,6 +88,7 @@ class Deeplabv1(BaseNet):
 
                 simg = augmentation(img, scale, flip_direction, (H, W))
                 pix_logits = self.inference(simg)
+                # pix_logits[:, 1:, :, :] = pix_logits[:, 1:, :, :] * img_gt[:, :, None, None]
                 pix_logits = reverse_augmentation(pix_logits, scale, flip_direction, (H, W))
                 pix_preds.append(pix_logits)
 
@@ -97,13 +96,12 @@ class Deeplabv1(BaseNet):
         return pix_pred
 
     def forward(self, batched_inputs):
-        img = batched_inputs['img']
-        pix_gt = batched_inputs['pseudo_pix_gt']
-
         if self.training:
+            img = batched_inputs['img']
+            pseudo_pix_gt = batched_inputs['pseudo_pix_gt']
             pix_logits = self.inference(img)
             losses = {}
-            losses['loss_mask'] = F.cross_entropy(pix_logits, pix_gt.long(), ignore_index=255).mean()
+            losses['loss_mask'] = F.cross_entropy(pix_logits, pseudo_pix_gt.long(), ignore_index=255).mean()
 
             return losses
         else:

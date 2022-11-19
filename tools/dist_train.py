@@ -16,15 +16,41 @@ from sembm.datasets import get_num_classes, get_class_names, build_dataset  # no
 from sembm.core import DistBaseTrainer, cfg, cfg_from_file, cfg_from_list  # noqa
 from sembm.utils import (  # noqa
     Checkpointer, Writer, convert_model, is_enabled, is_main_process, reduce_dict, reduce, build_dataloader,
-    init_process_group)
-from sembm.utils.lr_scheduler import EpochLrScheduler
+    init_process_group, LrScheduler)
 
 
-class DecTrainer(DistBaseTrainer):
+class IterLoader:
+
+    def __init__(self, dataloader):
+        self._dataloader = dataloader
+        self.iter_loader = iter(self._dataloader)
+        self._epoch = 0
+
+    @property
+    def epoch(self):
+        return self._epoch
+
+    def __next__(self):
+        try:
+            data = next(self.iter_loader)
+        except StopIteration:
+            self._epoch += 1
+            if hasattr(self._dataloader.sampler, 'set_epoch'):
+                self._dataloader.sampler.set_epoch(self._epoch)
+            self.iter_loader = iter(self._dataloader)
+            data = next(self.iter_loader)
+
+        return data
+
+    def __len__(self):
+        return len(self._dataloader)
+
+
+class Trainer(DistBaseTrainer):
 
     def __init__(self, cfg, model, optim, lr_sche, train_loader, val_loader, writer, checkpointer, **kwargs):
-        super(DecTrainer, self).__init__(cfg, model, optim, lr_sche, train_loader, val_loader, writer, checkpointer,
-                                         **kwargs)
+        super(Trainer, self).__init__(cfg, model, optim, lr_sche, train_loader, val_loader, writer, checkpointer,
+                                      **kwargs)
 
         self.nclass = get_num_classes(cfg.DATASET.NAME)
         self.classNames = get_class_names(cfg.DATASET.NAME)
@@ -34,6 +60,7 @@ class DecTrainer(DistBaseTrainer):
         self.start_iter = self.checkpointer.start_iter
         self.best_score = self.checkpointer.best_score
 
+        self.eval_period = cfg.TRAIN.EVAL_PERIOD
         self._iter = self.start_iter
         self._epoch = self.start_epoch
 
@@ -46,7 +73,7 @@ class DecTrainer(DistBaseTrainer):
         for dataset_dict in self.train_loader:
             self.writer.update_forward_timepoint()
             # to cuda
-            for k in ['img', 'pix_gt', 'img_gt', 'raw_img']:
+            for k in dataset_dict.keys():
                 if isinstance(dataset_dict[k], torch.Tensor):
                     dataset_dict[k] = dataset_dict[k].cuda()
 
@@ -76,7 +103,46 @@ class DecTrainer(DistBaseTrainer):
 
         self._epoch += 1
 
-    def validation(self, checkpoint=False):
+    def train_iter(self, iter, iter_loader):
+        assert self._iter == iter
+        self.model.train()
+
+        PRETRAIN = self._epoch <= cfg.TRAIN.PRETRAIN
+        self.writer.update_data_timepoint()
+        dataset_dict = next(iter_loader)
+        self.writer.update_forward_timepoint()
+        # to cuda
+        for k in dataset_dict.keys():
+            if isinstance(dataset_dict[k], torch.Tensor):
+                dataset_dict[k] = dataset_dict[k].cuda()
+
+        # forward
+        dataset_dict['PRETRAIN'] = PRETRAIN
+        output = self.model(dataset_dict)
+        losses = {k: v.mean() for k, v in output.items() if k.startswith('loss')}
+        loss = sum(losses.values())
+
+        self.writer.update_backward_timepoint()
+        # backward
+        self.optim.zero_grad()
+        loss.backward()
+        self.optim.step()
+
+        self.lr_sche.adjust_learning_rate(self._epoch, self._iter)
+
+        self.writer.update_data_timepoint()
+        # log
+        loss = reduce(loss)
+        losses = reduce_dict(losses)
+        if is_main_process():
+            log_losses = {k: v.item() for k, v in losses.items() if k.startswith('loss')}
+            log_losses['total_loss'] = loss.item()
+            self.writer._iter_log_losses(log_losses, self.optim.param_groups[0]['lr'], self._epoch, self._iter)
+
+        self._epoch = iter_loader.epoch + 1
+        self._iter += 1
+
+    def validation(self, epoch, iter, checkpoint=False):
         self.model.eval()
         IoU_dict = {}
         for key in ['cam']:
@@ -84,11 +150,11 @@ class DecTrainer(DistBaseTrainer):
                 IoU = evaluate(self.model, self.val_loader, False)
             IoU_dict[key] = IoU
 
-        self.writer._epoch_log_eval(self.classNames, IoU_dict, self._epoch - 1)
+        self.writer._log_eval(self.classNames, IoU_dict, epoch, iter)
         if checkpoint:
-            self.checkpointer.checkpoint(self._epoch - 1, self._iter - 1, np.mean(IoU_dict['cam']))
+            self.checkpointer.checkpoint(epoch, iter, np.mean(IoU_dict['cam']))
 
-    def train(self):
+    def train_epochwise(self):
         for epoch in range(self.start_epoch, cfg.TRAIN.NUM_EPOCHS + 1):
             # shuffle
             if hasattr(self.train_loader.sampler, 'set_epoch'):
@@ -97,9 +163,18 @@ class DecTrainer(DistBaseTrainer):
             self.train_epoch(epoch)
 
             with torch.no_grad():
-                self.validation(True)
+                self.validation(epoch, self._iter - 1, True)
 
         self.writer.close()
+
+    def train_iterwise(self):
+        iter_loader = IterLoader(self.train_loader)
+        for iter in range(self.start_iter, cfg.TRAIN.NUM_ITERS + 1):
+            self.train_iter(iter, iter_loader)
+
+            if iter % self.eval_period == 0:
+                with torch.no_grad():
+                    self.validation(self._epoch, iter, True)
 
 
 def main_worker(rank, num_gpus, args):
@@ -118,16 +193,17 @@ def main_worker(rank, num_gpus, args):
     else:
         cfg.WORK_DIR = args.work_dir
 
-    if not osp.exists(cfg.WORK_DIR):
-        os.makedirs(cfg.WORK_DIR, 0o775)
+    if is_main_process():
+        if not osp.exists(cfg.WORK_DIR):
+            os.makedirs(cfg.WORK_DIR, 0o775)
 
     # Reading the config
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
         cfg_from_list(args.set_cfgs)
 
-    train_dataset = build_dataset(cfg, cfg.DATASET.TRAIN_SPLIT)
-    val_dataset = build_dataset(cfg, 'val')
+    train_dataset = build_dataset(cfg, cfg.DATASET.TRAIN_SPLIT, test_mode=False)
+    val_dataset = build_dataset(cfg, 'val', test_mode=True)
 
     train_loader = build_dataloader(
         train_dataset,
@@ -148,7 +224,7 @@ def main_worker(rank, num_gpus, args):
     if is_enabled():
         cfg.NET.BN_TYPE = 'syncbn'
 
-    model = DecTrainer.build_model(cfg)
+    model = Trainer.build_model(cfg)
     kwargs = {
         "base_lr": cfg.TRAIN.LR,
         "wd": cfg.TRAIN.WEIGHT_DECAY,
@@ -156,10 +232,10 @@ def main_worker(rank, num_gpus, args):
         "world_size": num_gpus,
     }
     param_groups = model.parameter_groups(**kwargs)
-    optim = DecTrainer.build_optim(param_groups, cfg.TRAIN)
+    optim = Trainer.build_optim(param_groups, cfg.TRAIN)
     max_epochs = cfg.TRAIN.NUM_EPOCHS
     max_iters = cfg.TRAIN.NUM_EPOCHS * len(train_dataset) // cfg.TRAIN.BATCH_SIZE
-    lr_sche = EpochLrScheduler(cfg, max_epochs, max_iters, optim)
+    lr_sche = LrScheduler(cfg, max_epochs, max_iters, optim)
 
     checkpointer = Checkpointer(cfg.WORK_DIR, max_n=3)
     checkpointer.add_model(model, optim)
@@ -173,12 +249,15 @@ def main_worker(rank, num_gpus, args):
     # to ddp model
     model = convert_model(model, find_unused_parameters=True)
 
-    trainer = DecTrainer(cfg, model, optim, lr_sche, train_loader, val_loader, writer, checkpointer)
+    trainer = Trainer(cfg, model, optim, lr_sche, train_loader, val_loader, writer, checkpointer)
     if is_main_process():
         trainer.writer.logger_writer.info(model)
         trainer.writer.logger_writer.info("Config: ")
         trainer.writer.logger_writer.info(cfg)
-    trainer.train()
+    if cfg.TRAIN.MODE == 'iter':
+        trainer.train_iterwise()
+    elif cfg.TRAIN.MODE == 'epoch':
+        trainer.train_epochwise()
 
 
 def main():

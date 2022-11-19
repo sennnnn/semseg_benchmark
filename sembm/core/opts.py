@@ -9,7 +9,7 @@ def add_global_arguments(parser):
 
     parser.add_argument('--num-gpus', default=1, type=int, help='number of gpus for distributed training')
     parser.add_argument('--port', default='10002', type=str, help='port used to set up distributed training')
-    parser.add_argument('--seed', default=0, type=int, help='seed for initializing training. ')
+    parser.add_argument('--seed', default=1, type=int, help='seed for initializing training. ')
 
     #
     # Configuration

@@ -25,14 +25,19 @@ __C.NUM_GPUS = 1
 # Training options
 # ---------------------------------------------------------------------------- #
 __C.TRAIN = AttrDict()
+__C.TRAIN.MODE = 'iter'
 __C.TRAIN.BATCH_SIZE = 20
 __C.TRAIN.NUM_EPOCHS = 15
+__C.TRAIN.NUM_ITERS = 80000
 __C.TRAIN.NUM_WORKERS = 4
 __C.TRAIN.MASK_LOSS = 0.0
 __C.TRAIN.PRETRAIN = 5
 __C.TRAIN.LR_SCHEDULER_NAME = 'step'
 __C.TRAIN.LR_DECAY_EPOCHS = [
     12,
+]
+__C.TRAIN.LR_DECAY_ITERS = [
+    40000,
 ]
 __C.TRAIN.LR_DECAY_RATE = 0.1
 __C.TRAIN.LR_DECAY_ALPHA = 0.9
@@ -41,6 +46,7 @@ __C.TRAIN.LR = 0.001
 __C.TRAIN.MOMENTUM = 0.9
 __C.TRAIN.WEIGHT_DECAY = 1e-5
 __C.TRAIN.BETA1 = 0.5
+__C.TRAIN.EVAL_PERIOD = 2000
 
 # ---------------------------------------------------------------------------- #
 # Inference options
@@ -50,6 +56,7 @@ __C.TEST.METHOD = "multiscale"  # multiscale | crop
 __C.TEST.DATA_ROOT = "/data/your_directory"
 __C.TEST.SCALES = [1, 0.5, 1.5, 2.0]
 __C.TEST.FLIP = True
+__C.TEST.CRF = True
 __C.TEST.PAD_SIZE = [1024, 1024]
 __C.TEST.CROP_SIZE = [448, 448]
 __C.TEST.CROP_GRID_SIZE = [2, 2]
@@ -78,6 +85,7 @@ __C.DATASET.SCALE_TO = 1.0
 __C.DATASET.PATH = "data/images"
 __C.DATASET.PSEUDO_GT_PATH = ""
 __C.DATASET.TRAIN_SPLIT = "train"
+__C.DATASET.TEST_SPLIT = "val"
 
 # ---------------------------------------------------------------------------- #
 # Network options
@@ -88,7 +96,6 @@ __C.NET.NUM_CLASSES = 21
 __C.NET.MODEL = 'vgg16'
 __C.NET.BACKBONE = 'resnet50'
 __C.NET.PRE_WEIGHTS_PATH = ""
-
 __C.NET.LOSS = 'SoftMargin'
 __C.NET.MASK_LOSS_BCE = 1.0
 __C.NET.BG_SCORE = 0.1  # background score (only for CAM)
@@ -97,6 +104,8 @@ __C.NET.FOCAL_LAMBDA = 0.01
 __C.NET.PAMR_KERNEL = [1, 2, 4, 8, 12, 24]
 __C.NET.PAMR_ITER = 10
 __C.NET.SG_PSI = 0.3
+__C.NET.ALPHA = 1.0
+__C.NET.MARGIN = 0.0
 
 # Mask Inference
 __C.MASKS = AttrDict()
